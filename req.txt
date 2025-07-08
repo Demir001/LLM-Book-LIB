@@ -1,0 +1,1 @@
+torch python-dotenv langchain langchain-community langchain-huggingface langchain-chroma transformers sentence-transformers pymupdf chromadb onnxruntime onnx nltk llama-cpp-python
