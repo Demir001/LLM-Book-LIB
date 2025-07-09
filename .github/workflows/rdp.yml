@@ -1,25 +1,68 @@
-name: CI
+name: VNC on Linux via Ngrok
 
 on: [push, workflow_dispatch]
 
 jobs:
   build:
-
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
 
     steps:
-    - name: Download
-      run: Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
-    - name: Extract
-      run: Expand-Archive ngrok.zip
-    - name: Auth
-      run: .\ngrok\ngrok.exe authtoken $Env:NGROK_AUTH_TOKEN
-      env:
-        NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
-    - name: Enable TS
-      run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server'-name "fDenyTSConnections" -Value 0
-    - run: Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-    - run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
-    - run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "P@ssw0rd!" -Force)
-    - name: Create Tunnel
-      run: .\ngrok\ngrok.exe tcp 3389
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install Desktop Environment, VNC Server, and ngrok
+        run: |
+          # Gerekli paketleri güncelle ve kur
+          sudo apt-get update
+          sudo apt-get install -y xfce4 xfce4-goodies tightvncserver dbus-x11
+          
+          # Ngrok'u indir ve kur
+          wget https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz -O ngrok.tgz
+          tar -xvzf ngrok.tgz
+          sudo mv ngrok /usr/local/bin/
+
+      - name: Configure VNC Server
+        run: |
+          # VNC şifresini ayarla (güvenlik için sır olarak saklamak daha iyidir)
+          # Bu komut, VNC sunucusunu ilk kez çalıştırır ve şifre yapılandırmasını oluşturur.
+          # expect komutu, şifre istemini otomatikleştirmek için kullanılır.
+          sudo apt-get install -y expect
+          
+          VNC_PASSWORD="password" # Şifreyi burada belirleyin
+          
+          expect -c "
+          spawn /usr/bin/tightvncserver :1
+          expect \"Password:\"
+          send \"$VNC_PASSWORD\n\"
+          expect \"Verify:\"
+          send \"$VNC_PASSWORD\n\"
+          expect \"Would you like to enter a view-only password (y/n)?\"
+          send \"n\n\"
+          expect eof
+          "
+          # VNC sunucusunu öldür, yapılandırma tamamlandı.
+          tightvncserver -kill :1
+
+      - name: Authenticate Ngrok
+        env:
+          NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+        run: ngrok authtoken $NGROK_AUTH_TOKEN
+
+      - name: Start VNC Server and Ngrok Tunnel
+        run: |
+          # VNC sunucusunu arka planda başlat (Ekran :1, port 5901)
+          tightvncserver :1 -geometry 1280x800 -depth 24
+          
+          # Ngrok'u arka planda başlat ve VNC portuna (5901) tünel aç
+          nohup ngrok tcp 5901 &
+          
+          # Ngrok API'sinin başlaması için bekle
+          sleep 10
+          
+          # Ngrok API'sinden tünel adresini al ve yazdır
+          curl -s http://127.0.0.1:4040/api/tunnels | jq -r '.tunnels[0].public_url'
+
+      - name: Keep Workflow Alive
+        run: |
+          echo "VNC tüneli aktif. Kapatmak için workflow'u iptal edin."
+          sleep 21000
