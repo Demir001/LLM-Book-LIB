@@ -12,8 +12,8 @@ jobs:
       - name: Download Ngrok
         run: Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
 
-      - name: Extract Ngrok
-        run: Expand-Archive ngrok.zip -DestinationPath .
+      - name: Extract Ngrok into folder
+        run: Expand-Archive ngrok.zip -DestinationPath .\ngrok
 
       - name: Auth Ngrok
         env:
@@ -30,7 +30,6 @@ jobs:
 
       - name: Start Ngrok TCP Tunnel in Background
         run: |
-          # ngrok.exe tcp 3389 çıktısını tunnel.txt'ye yönlendir ve arka planda çalıştır
           Start-Process -FilePath .\ngrok\ngrok.exe `
                         -ArgumentList 'tcp 3389' `
                         -NoNewWindow `
