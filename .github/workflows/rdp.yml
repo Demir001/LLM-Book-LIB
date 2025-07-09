@@ -1,0 +1,20 @@
+name: Start RDP with Ngrok
+
+on:
+  workflow_dispatch:
+
+jobs:
+  rdp:
+    runs-on: windows-latest
+    steps:
+      - name: Install Ngrok
+        run: |
+          Invoke-WebRequest -Uri https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-stable-windows-amd64.zip -OutFile ngrok.zip
+          Expand-Archive ngrok.zip -DestinationPath .
+          .\ngrok\ngrok.exe authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+          .\ngrok\ngrok.exe tcp 3389 > tunnel.txt &
+          Start-Sleep -Seconds 10
+
+      - name: Print Ngrok Address
+        run: |
+          Get-Content tunnel.txt | Select-String "tcp://"
