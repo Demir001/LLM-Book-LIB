@@ -1,4 +1,4 @@
-name: SSH on Linux via Ngrok
+name: SSH on Linux via Ngrok (v2 - Robust)
 
 on: [push, workflow_dispatch]
 
@@ -10,41 +10,94 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Set SSH Password and Install ngrok
+      - name: 1. Install dependencies (jq) and ngrok
         run: |
-          # Runner kullanıcısı için bir şifre belirle
-          SSH_PASSWORD="password123"
-          echo "runner:$SSH_PASSWORD" | sudo chpasswd
-          echo "SSH password for user 'runner' is: $SSH_PASSWORD"
+          # jq (JSON parser) ve net-tools (diagnostik için) kur
+          sudo apt-get update
+          sudo apt-get install -y jq net-tools
           
-          # Ngrok'u indir ve kur
+          # Ngrok'u indir ve PATH'e ekle
           wget https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz -O ngrok.tgz
           tar -xvzf ngrok.tgz
           sudo mv ngrok /usr/local/bin/
 
-      - name: Authenticate Ngrok
+      - name: 2. Configure SSH Server
+        run: |
+          # Runner kullanıcısı için bir şifre belirle
+          SSH_USER="runner"
+          SSH_PASSWORD="YourSecurePassword123!" # Lütfen bu şifreyi değiştirin
+          echo "Setting password for user: $SSH_USER"
+          echo "$SSH_USER:$SSH_PASSWORD" | sudo chpasswd
+          
+          # SSH sunucusunun şifre ile girişe izin verdiğinden emin ol
+          echo "PasswordAuthentication yes" | sudo tee -a /etc/ssh/sshd_config
+          
+          # Root kullanıcısının şifre ile girişine izin ver (isteğe bağlı ama hata ayıklamada yararlı)
+          # echo "PermitRootLogin yes" | sudo tee -a /etc/ssh/sshd_config
+          
+          # SSH servisini yeniden başlatarak değişiklikleri uygula
+          sudo systemctl restart sshd
+
+      - name: 3. Authenticate and Start Ngrok
         env:
           NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
-        run: ngrok authtoken $NGROK_AUTH_TOKEN
-
-      - name: Start Ngrok Tunnel for SSH
         run: |
-          # Ngrok'u arka planda başlat ve SSH portuna (22) tünel aç
-          nohup ngrok tcp 22 &
+          # Ngrok'u doğrula
+          ngrok authtoken $NGROK_AUTH_TOKEN
           
-          # Ngrok API'sinin başlaması için bekle
+          # Ngrok'u arka planda bir "daemon" olarak başlat. Bu, nohup'tan daha güvenilirdir.
+          # Logları /dev/null'a göndererek terminali meşgul etmesini engelle.
+          ngrok tcp 22 --log=stdout > /dev/null &
+
+      - name: 4. Retrieve Ngrok Tunnel Information
+        id: ngrok_info # Bu adıma bir ID veriyoruz
+        run: |
+          # Ngrok'un başlaması ve API'sinin aktif olması için bekle
           sleep 10
           
-          # Ngrok API'sinden tünel adresini al ve yazdır
-          # Bu komut, tam SSH komutunu sizin için oluşturur
-          SSH_URL=$(curl -s http://127.0.0.1:4040/api/tunnels | jq -r '.tunnels[0].public_url' | sed 's/tcp:\/\///')
-          echo "=================================================================="
-          echo "SSH BAĞLANTI KOMUTU:"
-          echo "ssh runner@$SSH_URL"
-          echo "Şifre: password123"
-          echo "=================================================================="
+          echo "Attempting to fetch tunnel information from Ngrok API..."
+          # Ngrok'un yerel API'sine istek at
+          RESPONSE=$(curl -s http://127.0.0.1:4040/api/tunnels)
+          
+          # jq kullanarak public_url'i çek
+          TUNNEL_URL=$(echo $RESPONSE | jq -r '.tunnels[0].public_url')
+          
+          if [ -z "$TUNNEL_URL" ] || [ "$TUNNEL_URL" == "null" ]; then
+            echo "Error: Could not retrieve Ngrok tunnel URL."
+            echo "API Response: $RESPONSE"
+            exit 1
+          fi
 
-      - name: Keep Workflow Alive
+          # URL'yi sonraki adımlarda kullanmak için bir çıktı değişkenine ata
+          # Örnek TUNNEL_URL: tcp://0.tcp.ngrok.io:12345
+          echo "::set-output name=url::$TUNNEL_URL"
+          
+      - name: 5. Print Connection Details
         run: |
-          echo "SSH tüneli aktif. Kapatmak için workflow'u iptal edin."
+          # Bir önceki adımdan URL'yi al
+          FULL_URL=${{ steps.ngrok_info.outputs.url }}
+          
+          # "tcp://" önekini kaldır
+          ADDRESS_WITH_PORT=$(echo $FULL_URL | sed 's/tcp:\/\///')
+          
+          # Host ve Port'u ayır
+          HOST=$(echo $ADDRESS_WITH_PORT | cut -d: -f1)
+          PORT=$(echo $ADDRESS_WITH_PORT | cut -d: -f2)
+
+          echo "=================================================================="
+          echo "SSH BAĞLANTI BİLGİLERİ"
+          echo "=================================================================="
+          echo "Doğrudan Bağlantı Komutu:"
+          echo "ssh runner@$HOST -p $PORT"
+          echo ""
+          echo "Veya RDP/SSH istemciniz için bilgiler:"
+          echo "Host: $HOST"
+          echo "Port: $PORT"
+          echo "Kullanıcı Adı: runner"
+          echo "Şifre: YourSecurePassword123!" # Şifreyi burada gösteriyoruz
+          echo "=================================================================="
+          
+      - name: 6. Keep Workflow Alive
+        run: |
+          echo "SSH tüneli aktif. Kapatmak için GitHub Actions'tan workflow'u iptal edin."
           sleep 21000
