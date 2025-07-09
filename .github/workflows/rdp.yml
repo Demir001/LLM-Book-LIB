@@ -1,4 +1,4 @@
-name: CI with RDP via Ngrok
+name: CI with RDP via Ngrok v2
 
 on: [push, workflow_dispatch]
 
@@ -7,7 +7,7 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout code (gerekliyse)
+      - name: Checkout code
         uses: actions/checkout@v3
 
       - name: Enable RDP Access
@@ -15,44 +15,65 @@ jobs:
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
-          # Runner kullanıcısının şifresini ayarla
-          $password = "P@ssw0rdRDP123!" # Daha güvenli veya rastgele bir şifre kullanabilirsiniz
+          $password = "P@ssw0rdRDP123!"
           $user = "runneradmin"
           Add-Type -AssemblyName System.Web
           $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
           Set-LocalUser -Name $user -Password $securePassword
-          echo "RDP User: $user"
-          echo "RDP Password: $password"
+          # Şifreyi daha sonra kullanmak için bir environment variable'a yazalım
+          echo "RDP_USER=$user" >> $env:GITHUB_ENV
+          echo "RDP_PASSWORD=$password" >> $env:GITHUB_ENV
           
-      - name: Download and setup Ngrok
+      - name: Download and Authenticate Ngrok
         env:
           NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
         run: |
-          # Ngrok'u indir ve çıkar
           Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
           Expand-Archive ngrok.zip -DestinationPath .
-          # Ngrok auth token'ını ayarla
           .\ngrok.exe authtoken $Env:NGROK_AUTH_TOKEN
-          # Ngrok'u arka planda başlat ve log dosyasını belirt
-          # Bu, hem ngrok'un çalışmasını sağlar hem de API'sinin aktif olmasını garantiler.
-          Start-Process -FilePath ".\ngrok.exe" -ArgumentList "tcp 3389 --log=stdout" -NoNewWindow -PassThru
 
-      - name: Wait for Ngrok API to be ready
-        run: Start-Sleep -s 5 # Ngrok'un başlaması için kısa bir bekleme süresi
-
-      - name: Get Ngrok Tunnel Public URL
-        id: ngrok_tunnel # Bu adıma bir ID veriyoruz ki çıktısını başka adımlarda kullanabilelim
+      - name: Start Ngrok as a background process
+        # PowerShell'in Start-Job komutu, işlemi tamamen ayrı bir arka plan oturumunda çalıştırır.
+        # Bu, workflow'un ana akışını engellemez.
+        shell: pwsh
         run: |
-          # Ngrok'un yerel API'sine istek atarak tünel bilgilerini JSON olarak al
-          $tunnels = Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:4040/api/tunnels"
-          # TCP tünelinin public URL'sini seç
-          $tcp_tunnel_url = ($tunnels.tunnels | Where-Object {$_.proto -eq "tcp"}).public_url
-          if ($tcp_tunnel_url) {
-            echo "Ngrok tunnel URL: $tcp_tunnel_url"
-            # Bu URL'yi bir sonraki adımda kullanmak için bir çıktı değişkenine ata
-            echo "::set-output name=url::$tcp_tunnel_url"
+          Start-Job -FilePath ".\ngrok.exe" -ArgumentList "tcp", "3389", "--log", "stdout"
+          
+      - name: Get Ngrok Tunnel Public URL (with retry logic)
+        id: ngrok_tunnel
+        shell: pwsh
+        run: |
+          # Ngrok API'sinin hazır olmasını beklemek için bir yeniden deneme döngüsü
+          $max_retries = 10
+          $delay_seconds = 2
+          $retries = 0
+          $tunnel_url = $null
+
+          while ($retries -lt $max_retries) {
+            try {
+              Write-Host "Ngrok API'sine bağlanma denemesi (Deneme: $($retries + 1)/$max_retries)..."
+              $tunnels = Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:4040/api/tunnels"
+              $tunnel_url = ($tunnels.tunnels | Where-Object { $_.proto -eq "tcp" }).public_url
+              
+              if ($tunnel_url) {
+                Write-Host "Tünel başarıyla bulundu: $tunnel_url"
+                break # Döngüden çık
+              } else {
+                 Write-Host "API cevap verdi ama henüz TCP tüneli aktif değil. Bekleniyor..."
+              }
+            } catch {
+              Write-Host "Ngrok API henüz hazır değil. Hata: $($_.Exception.Message)"
+            }
+            
+            Start-Sleep -Seconds $delay_seconds
+            $retries++
+          }
+
+          if ($tunnel_url) {
+            # URL'yi sonraki adımlar için çıktı olarak ayarla
+            echo "::set-output name=url::$tunnel_url"
           } else {
-            echo "Ngrok TCP tüneli bulunamadı!"
+            Write-Host "HATA: Belirtilen süre içinde Ngrok tüneli bulunamadı!"
             exit 1
           }
 
@@ -62,16 +83,14 @@ jobs:
           echo "RDP BAĞLANTI BİLGİLERİ"
           echo "=========================================================================="
           echo "Adres (Host): ${{ steps.ngrok_tunnel.outputs.url }}"
-          echo "Kullanıcı Adı (Username): runneradmin"
-          echo "Şifre (Password): P@ssw0rdRDP123!" # Şifreyi burada tekrar yazdırıyoruz
+          echo "Kullanıcı Adı (Username): ${{ env.RDP_USER }}"
+          echo "Şifre (Password): ${{ env.RDP_PASSWORD }}"
           echo "=========================================================================="
           echo "Bu bilgilerle bir RDP istemcisi kullanarak bağlanabilirsiniz."
           echo "Workflow, siz manuel olarak durdurana kadar açık kalacaktır."
           echo "=========================================================================="
           
       - name: Keep Tunnel Alive
-        # Bu adım, workflow'un hemen bitmesini engeller.
-        # GitHub Actions, bir iş için maksimum 6 saatlik bir zaman aşımına sahiptir.
         run: |
           echo "Tünel aktif. Kapatmak için GitHub Actions arayüzünden 'Cancel workflow' seçeneğini kullanın."
           Start-Sleep -s 21000 # Yaklaşık 5.8 saat bekler.
