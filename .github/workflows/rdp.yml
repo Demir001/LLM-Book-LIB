@@ -1,4 +1,4 @@
-name: SSH on Linux via Ngrok (v2 - Robust)
+name: SSH on Linux via Ngrok (v2 - Fixed)
 
 on: [push, workflow_dispatch]
 
@@ -21,6 +21,7 @@ jobs:
           tar -xvzf ngrok.tgz
           sudo mv ngrok /usr/local/bin/
 
+      # --- BU ADIM GÜNCELLENDİ ---
       - name: 2. Configure SSH Server
         run: |
           # Runner kullanıcısı için bir şifre belirle
@@ -29,14 +30,16 @@ jobs:
           echo "Setting password for user: $SSH_USER"
           echo "$SSH_USER:$SSH_PASSWORD" | sudo chpasswd
           
-          # SSH sunucusunun şifre ile girişe izin verdiğinden emin ol
-          echo "PasswordAuthentication yes" | sudo tee -a /etc/ssh/sshd_config
-          
-          # Root kullanıcısının şifre ile girişine izin ver (isteğe bağlı ama hata ayıklamada yararlı)
-          # echo "PermitRootLogin yes" | sudo tee -a /etc/ssh/sshd_config
+          # 'PasswordAuthentication' ayarını 'yes' olarak değiştir veya yoksa ekle.
+          # Bu, mevcut 'PasswordAuthentication no' satırını düzeltir ve işi garantiye alır.
+          echo "Enabling password authentication for SSH..."
+          sudo sed -i 's/^#?PasswordAuthentication .*/PasswordAuthentication yes/' /etc/ssh/sshd_config
           
           # SSH servisini yeniden başlatarak değişiklikleri uygula
-          sudo systemctl restart sshd
+          # HATA DÜZELTİLDİ: 'sshd' yerine doğru servis adı olan 'ssh' kullanılıyor.
+          echo "Restarting SSH service..."
+          sudo systemctl restart ssh
+          echo "SSH service restarted successfully."
 
       - name: 3. Authenticate and Start Ngrok
         env:
@@ -45,12 +48,11 @@ jobs:
           # Ngrok'u doğrula
           ngrok authtoken $NGROK_AUTH_TOKEN
           
-          # Ngrok'u arka planda bir "daemon" olarak başlat. Bu, nohup'tan daha güvenilirdir.
-          # Logları /dev/null'a göndererek terminali meşgul etmesini engelle.
+          # Ngrok'u arka planda bir "daemon" olarak başlat.
           ngrok tcp 22 --log=stdout > /dev/null &
 
       - name: 4. Retrieve Ngrok Tunnel Information
-        id: ngrok_info # Bu adıma bir ID veriyoruz
+        id: ngrok_info
         run: |
           # Ngrok'un başlaması ve API'sinin aktif olması için bekle
           sleep 10
@@ -69,7 +71,6 @@ jobs:
           fi
 
           # URL'yi sonraki adımlarda kullanmak için bir çıktı değişkenine ata
-          # Örnek TUNNEL_URL: tcp://0.tcp.ngrok.io:12345
           echo "::set-output name=url::$TUNNEL_URL"
           
       - name: 5. Print Connection Details
@@ -90,7 +91,7 @@ jobs:
           echo "Doğrudan Bağlantı Komutu:"
           echo "ssh runner@$HOST -p $PORT"
           echo ""
-          echo "Veya RDP/SSH istemciniz için bilgiler:"
+          echo "Veya SSH istemciniz için bilgiler:"
           echo "Host: $HOST"
           echo "Port: $PORT"
           echo "Kullanıcı Adı: runner"
