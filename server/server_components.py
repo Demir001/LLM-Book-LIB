@@ -9,7 +9,8 @@ from typing import List, Dict, Any, Optional
 
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.docstore.document import Document
-from langchain.retrievers import BM25Retriever, EnsembleRetriever
+from langchain_community.retrievers import BM25Retriever
+from langchain.retrievers import EnsembleRetriever # EnsembleRetriever genellikle ana pakette kalır.
 import shutil
 from datetime import datetime
 
@@ -142,9 +143,6 @@ class StateManager:
         self._logger = logging.getLogger(self.__class__.__name__)
         # state_file formatı: {"dosya_yolu": {"status": "processed", "metadata": {...}}}
         self._state: Dict[str, Any] = self._load()
-        self._logger.info("Hibrit arama için BM25 Retriever hazırlanıyor...")
-        all_docs = self._db.get()['documents'] # Chroma'dan tüm belgelerin metinlerini al
-        all_metadatas = self._db.get()['metadatas']
     def _load(self) -> Dict[str, Any]:
         if not self._state_file.exists():
             return {}
