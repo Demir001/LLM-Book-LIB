@@ -1,20 +1,43 @@
-name: Start RDP with Ngrok
+name: CI
 
 on:
+  push:
   workflow_dispatch:
 
 jobs:
-  rdp:
+  build:
     runs-on: windows-latest
+
     steps:
-      - name: Install Ngrok
+      - name: Download Ngrok
+        run: Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
+
+      - name: Extract Ngrok
+        run: Expand-Archive ngrok.zip -DestinationPath .
+
+      - name: Auth Ngrok
+        env:
+          NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+        run: .\ngrok\ngrok.exe authtoken $Env:NGROK_AUTH_TOKEN
+
+      - name: Enable RDP on Windows
         run: |
-          Invoke-WebRequest -Uri https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-stable-windows-amd64.zip -OutFile ngrok.zip
-          Expand-Archive ngrok.zip -DestinationPath .
-          .\ngrok\ngrok.exe authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
-          .\ngrok\ngrok.exe tcp 3389 > tunnel.txt &
-          Start-Sleep -Seconds 10
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
+          # Varsayılan kullanıcıyı (runneradmin) açık şifreyle oluştur / resetle
+          Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "P@ssw0rd!" -Force)
+
+      - name: Start Ngrok TCP Tunnel in Background
+        run: |
+          # ngrok.exe tcp 3389 çıktısını tunnel.txt'ye yönlendir ve arka planda çalıştır
+          Start-Process -FilePath .\ngrok\ngrok.exe `
+                        -ArgumentList 'tcp 3389' `
+                        -NoNewWindow `
+                        -RedirectStandardOutput tunnel.txt
+
+      - name: Wait for Tunnel to Initialize
+        run: Start-Sleep -Seconds 10
 
       - name: Print Ngrok Address
-        run: |
-          Get-Content tunnel.txt | Select-String "tcp://"
+        run: Get-Content tunnel.txt | Select-String "tcp://"
