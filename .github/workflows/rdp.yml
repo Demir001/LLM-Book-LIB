@@ -10,14 +10,13 @@ jobs:
       - name: Download Ngrok
         run: Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
 
-      - name: Extract Ngrok
-        run: Expand-Archive ngrok.zip
+      - name: Extract Ngrok to folder
+        run: Expand-Archive ngrok.zip -DestinationPath ngrok
 
       - name: Auth Ngrok
         run: .\ngrok\ngrok.exe authtoken $Env:NGROK_AUTH_TOKEN
         env:
           NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
-        
 
       - name: Enable RDP
         run: |
@@ -26,5 +25,15 @@ jobs:
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
           Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "P@ssw0rd!" -Force)
 
-      - name: Start Ngrok (RDP)
-        run: .\ngrok.exe tcp 3389
+      - name: Start Ngrok and Write to tunnel.txt
+        run: |
+          Start-Process -FilePath .\ngrok\ngrok.exe `
+                        -ArgumentList 'tcp 3389' `
+                        -NoNewWindow `
+                        -RedirectStandardOutput tunnel.txt
+
+      - name: Wait for Ngrok to initialize
+        run: Start-Sleep -Seconds 10
+
+      - name: Print Ngrok TCP address
+        run: Get-Content tunnel.txt | Select-String "tcp://"
