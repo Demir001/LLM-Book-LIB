@@ -4,10 +4,10 @@ on: [push, workflow_dispatch]
 
 jobs:
   build:
+
     runs-on: windows-latest
 
     steps:
-    # --- BU ADIMLAR DEĞİŞMEDİ ---
     - name: Download
       run: Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
     - name: Extract
@@ -21,38 +21,5 @@ jobs:
     - run: Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
     - run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
     - run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "P@ssw0rd!" -Force)
-    
-    # --- YENİ VE GÜNCELLENMİŞ ADIMLAR BURADA BAŞLIYOR ---
-
-    # Adım 1: Ngrok'u arka planda başlat ve çıktısını bir dosyaya yönlendir.
-    - name: Start Ngrok in Background
-      shell: cmd
-      run: |
-        start /b .\ngrok\ngrok.exe tcp 3389 --log=stdout > ngrok.log
-
-    # Adım 2: Ngrok'un log dosyasını oluşturması için kısa bir süre bekle.
-    - name: Wait for Ngrok Log
-      run: Start-Sleep -s 10 # 10 saniye beklemek genellikle yeterlidir.
-
-    # Adım 3: Log dosyasından TCP adresini bul ve yazdır.
-    - name: Find and Print Ngrok URL from Log
-      run: |
-        echo "Searching for Ngrok URL in ngrok.log..."
-        # Get-Content ile dosyayı oku ve Select-String ile 'tcp://' içeren satırı bul.
-        $ngrokLine = Get-Content ngrok.log | Select-String "url=tcp://" -ErrorAction SilentlyContinue
-        if ($ngrokLine) {
-          echo "=========================================="
-          # Python betiğinizin bulması için anahtar satırı yazdırıyoruz.
-          # Örnek Çıktı: "Found RDP Address: tcp://0.tcp.ngrok.io:12345"
-          echo "Found RDP Address: $($ngrokLine -replace '.*url=','')"
-          echo "=========================================="
-        } else {
-          echo "Error: Ngrok URL not found in log file."
-          echo "--- Full Log Content ---"
-          Get-Content ngrok.log
-          exit 1
-        }
-
-    # Adım 4: Workflow'un kapanmaması için bekle.
-    - name: Keep Workflow Alive
-      run: Start-Sleep -s 21000
+    - name: Create Tunnel
+      run: .\ngrok\ngrok.exe tcp 3389
