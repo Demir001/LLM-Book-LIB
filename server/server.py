@@ -4,7 +4,7 @@ import json
 import logging
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
-import cgi
+
 
 # Projemizin kendi modüllerini import ediyoruz
 from config import AppConfig
@@ -122,10 +122,6 @@ class RequestHandler(BaseHTTPRequestHandler):
         """
         İstemciden gelen bir sorgu için ilgili belgeleri veritabanından çeker.
         """
-        ctype, pdict = cgi.parse_header(self.headers.get('content-type'))
-        if ctype != 'application/json':
-            self._send_response(400, {'error': 'Content-Type must be application/json'})
-            return
         
         content_length = int(self.headers.get('content-length'))
         post_data = json.loads(self.rfile.read(content_length))
