@@ -1,0 +1,16 @@
+langchain>=0.1.20
+langchain-community>=0.0.38
+langchain-huggingface>=0.0.3
+llama-cpp-python>=0.2.79
+torch>=2.2.0
+sentence-transformers>=2.7.0
+gradio>=4.31.0
+llama-cpp-python'ın GPU Destekli Kurulumu:
+requirements_client.txt dosyasındaki llama-cpp-python standart (CPU) versiyonunu kurar. Eğer NVIDIA GPU'nuz varsa ve CUDA kullanmak istiyorsanız, en iyi performans için bu paketi manuel olarak kurmanız gerekir.
+Önce requirements.txt ile diğer paketleri kurun: pip install -r requirements_client.txt
+Sonra standart llama-cpp-python'ı kaldırın: pip uninstall llama-cpp-python
+Ardından GPU destekli versiyonu şu şekilde kurun (Windows için örnek):
+Generated bash
+$env:CMAKE_ARGS="-DLLAMA_CUBLAS=on"
+$env:FORCE_CMAKE=1
+pip install --upgrade --force-reinstall llama-cpp-python --no-cache-dir
